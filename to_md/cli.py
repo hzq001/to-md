@@ -29,10 +29,12 @@ from to_md.task_scheduler import TaskScheduler
               help='显示详细日志')
 @click.option('--docintel-endpoint', type=str, default='',
               help='Azure文档智能服务端点')
-@click.option('--dry-run', is_flag=True, default=False,
-              help='模拟运行，不实际转换文件')
 @click.option('--overwrite', is_flag=True, default=False,
               help='覆盖已存在的目标文件')
+@click.option('--use-llm', is_flag=True, default=False,
+              help='启用LLM集成以处理图像和音频文件（需要额外配置）')
+@click.option('--llm-model', type=str, default='gpt-4o',
+              help='指定LLM模型（默认: gpt-4o）')
 def main(source_dir: str, target_dir: str, **options):
     """
     to-md: 批量文件转Markdown工具
@@ -60,6 +62,18 @@ def main(source_dir: str, target_dir: str, **options):
         # 初始化日志管理器
         log_manager = LogManager(config)
         
+        # 处理LLM集成（如果启用）
+        if config.get('use_llm', False):
+            try:
+                log_manager.log_event('info', f"尝试初始化LLM集成（模型: {config.get('llm_model')}）")
+                init_llm(config, log_manager)
+            except Exception as e:
+                log_manager.log_event('error', f"初始化LLM失败: {str(e)}")
+                if config.get('verbose'):
+                    import traceback
+                    log_manager.log_event('debug', traceback.format_exc())
+                sys.exit(1)
+        
         # 初始化文件扫描器
         file_scanner = FileScanner(config)
         
@@ -67,7 +81,21 @@ def main(source_dir: str, target_dir: str, **options):
         file_scanner.create_output_directories()
         
         # 初始化转换引擎
-        conversion_engine = ConversionEngine(config)
+        try:
+            conversion_engine = ConversionEngine(config)
+        except ImportError as e:
+            log_manager.log_event('error', f"无法初始化转换引擎: {str(e)}")
+            click.echo(f"错误: {str(e)}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            log_manager.log_event('error', f"初始化转换引擎失败: {str(e)}")
+            if config.get('verbose'):
+                import traceback
+                log_manager.log_event('debug', traceback.format_exc())
+                click.echo(traceback.format_exc(), err=True)
+            else:
+                click.echo(f"错误: {str(e)}", err=True)
+            sys.exit(1)
         
         # 扫描文件
         log_manager.log_event('info', f"正在扫描目录: {config['source_dir']}")
@@ -80,10 +108,6 @@ def main(source_dir: str, target_dir: str, **options):
         if total_files == 0:
             log_manager.log_event('warning', "没有找到符合条件的文件，程序将退出")
             return
-            
-        # 模拟运行时显示提示
-        if config['dry_run']:
-            log_manager.log_event('info', "注意: 这是模拟运行，不会实际转换文件")
             
         # 初始化任务调度器
         task_scheduler = TaskScheduler(config, conversion_engine, log_manager)
@@ -116,6 +140,30 @@ def main(source_dir: str, target_dir: str, **options):
             import traceback
             click.echo(traceback.format_exc(), err=True)
         sys.exit(1)
+
+def init_llm(config: Dict[str, Any], log_manager) -> None:
+    """
+    初始化LLM集成
+    
+    Args:
+        config: 配置字典
+        log_manager: 日志管理器实例
+    """
+    # 检查是否安装了OpenAI库
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError("缺少 OpenAI 库，无法启用LLM集成。请使用 'pip install openai' 安装OpenAI库")
+    
+    # 检查是否设置了OPENAI_API_KEY环境变量
+    if 'OPENAI_API_KEY' not in os.environ:
+        raise ValueError("未设置 OPENAI_API_KEY 环境变量。请设置 OPENAI_API_KEY 环境变量或在OpenAI客户端初始化时传入API密钥")
+    
+    # 初始化OpenAI客户端
+    client = OpenAI()
+    # 更新配置
+    config['llm_client'] = client
+    log_manager.log_event('info', f"成功初始化LLM客户端，使用模型: {config['llm_model']}")
         
 if __name__ == '__main__':
     main() 

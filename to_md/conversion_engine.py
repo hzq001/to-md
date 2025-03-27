@@ -7,14 +7,15 @@ import tempfile
 from typing import Dict, Any, Optional, List, Tuple
 import json
 import importlib
+import sys
 
 # 检查markitdown库是否可用
 try:
-    import markitdown
+    from markitdown import MarkItDown
     MARKITDOWN_AVAILABLE = True
 except ImportError:
     MARKITDOWN_AVAILABLE = False
-    print("警告: markitdown库未安装，将使用模拟转换")
+    print("错误: markitdown库未安装，请使用 'pip install markitdown[all]~=0.1.0a1' 进行安装")
 
 
 class ConversionEngine:
@@ -38,26 +39,29 @@ class ConversionEngine:
         初始化MarkItDown库
         """
         if not MARKITDOWN_AVAILABLE:
-            print("警告: markitdown库未安装，将使用模拟转换")
-            return
+            raise ImportError("markitdown库未安装，请使用 'pip install markitdown[all]~=0.1.0a1' 进行安装")
             
         try:
+            # 检查是否启用插件
+            enable_plugins = self.config.get('use_plugins', False)
+            
             # 初始化MarkItDown实例
-            self.markitdown = markitdown.MarkItDown()
+            markitdown_kwargs = {'enable_plugins': enable_plugins}
             
             # 如果配置了Azure文档智能端点，设置它
             if self.config.get('docintel_endpoint'):
-                self.markitdown.configure({
-                    'azure_document_intelligence_endpoint': self.config['docintel_endpoint']
-                })
+                markitdown_kwargs['docintel_endpoint'] = self.config['docintel_endpoint']
                 
-            # 如果启用了插件，加载并配置
-            if self.config.get('use_plugins', False):
-                self._load_plugins()
+            # 配置LLM客户端（如果有）
+            if self.config.get('llm_client') and self.config.get('llm_model'):
+                markitdown_kwargs['llm_client'] = self.config['llm_client']
+                markitdown_kwargs['llm_model'] = self.config['llm_model']
+                
+            # 初始化MarkItDown
+            self.markitdown = MarkItDown(**markitdown_kwargs)
                 
         except Exception as e:
-            print(f"初始化MarkItDown失败: {e}")
-            self.markitdown = None
+            raise RuntimeError(f"初始化MarkItDown失败: {e}")
             
     def _load_plugins(self) -> None:
         """
@@ -79,22 +83,6 @@ class ConversionEngine:
         """
         # 记录开始时间
         start_time = time.time()
-        
-        # 如果是模拟运行，不执行实际转换
-        if self.config.get('dry_run', False):
-            # 等待一小段时间以模拟处理
-            time.sleep(0.5)
-            return {
-                'file_info': file_info,
-                'status': 'success',
-                'message': '[模拟] 文件已成功转换',
-                'duration': time.time() - start_time,
-                'output_path': file_info['output_path']
-            }
-            
-        # 如果MarkItDown未初始化，使用模拟转换
-        if not self.markitdown:
-            return self._mock_convert_file(file_info)
             
         # 执行实际转换
         try:
@@ -103,24 +91,27 @@ class ConversionEngine:
             
             # 调用MarkItDown库进行转换
             result = self.markitdown.convert(
-                file_info['path'],
-                output_path=file_info['output_path']
+                file_info['path']
             )
             
-            # 处理转换结果
-            if result and os.path.exists(file_info['output_path']):
+            # 如果转换成功，保存结果到输出文件
+            if result and hasattr(result, 'text_content'):
+                with open(file_info['output_path'], 'w', encoding='utf-8') as f:
+                    f.write(result.text_content)
+                    
                 return {
                     'file_info': file_info,
                     'status': 'success',
                     'message': '文件已成功转换',
                     'duration': time.time() - start_time,
-                    'output_path': file_info['output_path']
+                    'output_path': file_info['output_path'],
+                    'content': result.text_content
                 }
             else:
                 return {
                     'file_info': file_info,
                     'status': 'failure',
-                    'message': '转换失败，未生成输出文件',
+                    'message': '转换失败，未获取到内容',
                     'duration': time.time() - start_time,
                     'output_path': None
                 }
@@ -135,65 +126,6 @@ class ConversionEngine:
                 'output_path': None
             }
             
-    def _mock_convert_file(self, file_info: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        模拟文件转换，用于测试或MarkItDown不可用时
-        
-        Args:
-            file_info: 文件信息字典
-            
-        Returns:
-            转换结果字典
-        """
-        # 记录开始时间
-        start_time = time.time()
-        
-        try:
-            # 创建输出目录
-            os.makedirs(os.path.dirname(file_info['output_path']), exist_ok=True)
-            
-            # 创建一个简单的Markdown内容
-            md_content = f"""# {os.path.basename(file_info['path'])}
-
-## 文件信息
-
-- 原始文件: {file_info['path']}
-- 文件类型: {file_info.get('type', '未知')}
-- 文件大小: {file_info.get('size', 0)} 字节
-- MIME类型: {file_info.get('mime_type', '未知')}
-
-## 内容
-
-这是一个模拟转换的Markdown文件。在实际使用中，这里会包含从原始文件提取的内容。
-
-*注意: 这是由to-md工具模拟转换生成的文件，未使用实际的MarkItDown库。*
-"""
-            
-            # 写入输出文件
-            with open(file_info['output_path'], 'w', encoding='utf-8') as f:
-                f.write(md_content)
-                
-            # 添加一些随机延迟以模拟处理时间
-            time.sleep(0.5 + (file_info.get('size', 0) % 1000) / 1000)
-            
-            return {
-                'file_info': file_info,
-                'status': 'success',
-                'message': '[模拟] 文件已成功转换',
-                'duration': time.time() - start_time,
-                'output_path': file_info['output_path']
-            }
-            
-        except Exception as e:
-            # 记录错误并返回失败状态
-            return {
-                'file_info': file_info,
-                'status': 'failure',
-                'message': f'[模拟] 转换过程中出错: {str(e)}',
-                'duration': time.time() - start_time,
-                'output_path': None
-            }
-            
     def get_supported_formats(self) -> List[str]:
         """
         获取支持的文件格式列表
@@ -201,18 +133,46 @@ class ConversionEngine:
         Returns:
             支持的文件格式列表
         """
-        if not self.markitdown:
-            # 如果MarkItDown不可用，返回常见格式
-            return ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", 
-                    "txt", "html", "htm", "jpg", "jpeg", "png", "mp3", 
-                    "mp4", "epub", "zip"]
-        
         # 调用MarkItDown获取支持的格式
         try:
-            return self.markitdown.get_supported_formats()
+            # 在最新版API中，可能需要查看支持的转换器
+            # 这里我们假设有一个get_supported_formats方法
+            # 如果实际API不同，需要根据实际情况调整
+            if hasattr(self.markitdown, 'get_supported_formats'):
+                return self.markitdown.get_supported_formats()
+            else:
+                # 如果没有此方法，返回常见格式
+                return ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", 
+                        "txt", "html", "htm", "jpg", "jpeg", "png", "mp3", 
+                        "mp4", "epub", "zip"]
         except Exception as e:
             print(f"获取支持的格式失败: {e}")
             return []
+    
+    def configure_llm(self, llm_client: Any, llm_model: str) -> bool:
+        """
+        配置LLM客户端，用于增强图像和音频处理
+        
+        Args:
+            llm_client: LLM客户端实例（如OpenAI客户端）
+            llm_model: 要使用的LLM模型名称
+            
+        Returns:
+            是否成功配置
+        """
+        if not self.markitdown:
+            raise RuntimeError("MarkItDown未初始化，无法配置LLM")
+            
+        try:
+            # 更新配置
+            self.config['llm_client'] = llm_client
+            self.config['llm_model'] = llm_model
+            
+            # 重新初始化MarkItDown
+            self.initialize_markitdown()
+            return True
+        except Exception as e:
+            raise RuntimeError(f"配置LLM失败: {e}")
             
     def save_result(self, result: Dict[str, Any], output_path: str = None) -> bool:
         """

@@ -40,8 +40,10 @@ class ConfigManager:
             'threads': 4,
             'verbose': False,
             'docintel_endpoint': '',
-            'dry_run': False,
-            'checkpoint_file': '.to_md_checkpoint.json'
+            'checkpoint_file': '.to_md_checkpoint.json',
+            'llm_client': None,  # LLM客户端实例
+            'llm_model': '',     # LLM模型名称
+            'overwrite': False,  # 是否覆盖已存在的文件
         }
 
     def merge_user_config(self, user_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -100,6 +102,10 @@ class ConfigManager:
         if self.config['threads'] < 1:
             self.config['threads'] = 1
         
+        # 验证LLM配置
+        if self.config['llm_client'] is not None and not self.config['llm_model']:
+            raise ConfigurationError("如果提供了LLM客户端，则必须指定LLM模型名称")
+        
         # 验证其他配置项
         # ...
 
@@ -111,6 +117,19 @@ class ConfigManager:
             当前配置字典
         """
         return self.config
+    
+    def update_config(self, key: str, value: Any) -> None:
+        """
+        更新配置值
+        
+        Args:
+            key: 配置键
+            value: 配置值
+        """
+        if key in self.config:
+            self.config[key] = value
+        else:
+            raise ConfigurationError(f"未知的配置键: {key}")
 
 
 class ConfigurationError(Exception):
