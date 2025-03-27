@@ -1,0 +1,63 @@
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.env
+.venv
+*.venv
+*env/
+
+# PyInstaller 打包文件
+build/
+dist/
+*.spec
+
+# setuptools 分发包
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+develop-eggs/
+
+# 测试相关
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# IDE 相关文件
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*.sublime*
+
+# 日志和数据库文件
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时文件
+tmp/
+temp/
+
+# Jupyter Notebook 相关
+.ipynb_checkpoints
+
+# conda 环境
+/anaconda*/
+/miniconda*/
+/conda-bld/
+.conda/
+
+# 自定义项目相关
+# 临时转换的Markdown文件目录，按需修改
+md_output/ 
