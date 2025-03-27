@@ -15,7 +15,6 @@ ENV/
 # PyInstaller 打包文件
 build/
 dist/
-*.spec
 
 # setuptools 分发包
 *.egg-info/
